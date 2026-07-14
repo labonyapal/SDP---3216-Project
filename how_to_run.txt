@@ -1,0 +1,50 @@
+UNIVERSITY MANAGEMENT SYSTEM STARTUP GUIDE
+==========================================
+
+This document details all setup and execution commands required to run the classroom clone application.
+
+1. Ensure MongoDB is running
+----------------------------
+Make sure MongoDB is running locally on port 27017.
+If running via Docker:
+docker run -d -p 27017:27017 --name mongodb mongo:latest
+
+If running as a Windows service:
+Ensure the "MongoDB Server" service is running in Task Manager or Services (services.msc).
+
+2. Activate the Virtual Environment
+----------------------------------
+Open a PowerShell or CMD window in the project root directory and run:
+
+PowerShell:
+.\venv\Scripts\Activate.ps1
+
+CMD:
+venv\Scripts\activate
+
+3. Install Required Dependencies
+--------------------------------
+Ensure all security and database packages are installed in your virtual environment:
+pip install fastapi uvicorn motor pydantic dnspython python-dotenv pyjwt bcrypt python-multipart
+
+4. Start the Application
+------------------------
+Launch the FastAPI development server:
+python -m uvicorn app.main:app --reload
+
+5. Open Web Portal
+------------------
+Open your web browser and navigate to:
+http://127.0.0.1:8000
+
+How to Validate Software Design Patterns in the Portal:
+------------------------------------------------------
+1. Create a Teacher Account: Click "Register", select "Teacher", and enter details.
+2. Log In as Teacher: Use the credentials to login.
+3. Create a Classroom: Fill out the creation form. The system will use the ClassroomFactory to instantiate the classroom type (Lecture/Lab/Seminar) and automatically generate a unique 6-character access code (e.g. AB12CD).
+4. Create a Student Account: Log out, go to "Register", select "Student", and register a new account.
+5. Log In as Student: Use the student credentials to login.
+6. Join Classroom: Enter the unique classroom access code generated in Step 3. The system will join the student to the classroom in the database and automatically attach a StudentNotificationObserver (representing this student) to the classroom's NoticeBoard in-memory.
+7. Post a Notice (Observer pattern trigger): Log out and log back in as the Teacher. Select the classroom, type a notice message, and click "Broadcast Notice".
+8. Live Pattern Activity Terminal: Notice the scrollable terminal logger at the bottom of the page. It will output real-time observer notification logs as the Subject (NoticeBoard) notifies all registered observers (Students) via their update() methods!
+9. Upload Study Material: As a Teacher, upload files (PDFs, study notes) to the classroom. Log back in as a Student to download and access the uploaded files.

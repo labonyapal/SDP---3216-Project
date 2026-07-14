@@ -2,23 +2,23 @@ from abc import ABC, abstractmethod
 
 class User(ABC):
     @abstractmethod
-    def get_role(self): pass
+    def get_role(self) -> str:
+        pass
 
 class Teacher(User):
-    def get_role(self): return "Teacher"
-
-class Staff(User):
-    def get_role(self): return "Staff"
+    def get_role(self) -> str:
+        return "Teacher"
 
 class Student(User):
-    def get_role(self): return "Student"
+    def get_role(self) -> str:
+        return "Student"
 
 class UserFactory:
-    _registry = {"teacher": Teacher, "staff": Staff, "student": Student}
+    _registry = {"teacher": Teacher, "student": Student}
 
     @staticmethod
-    def create_user(role: str):
+    def create_user(role: str) -> User:
         user_class = UserFactory._registry.get(role.lower())
         if not user_class:
-            raise ValueError("Invalid Role")
+            raise ValueError("Invalid Role. Must be 'Student' or 'Teacher'")
         return user_class()

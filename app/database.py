@@ -23,7 +23,8 @@ class Database:
     def connect(self):
         # Initialize the connection only if it hasn't been done yet
         if self.client is None:
-            self.client = AsyncIOMotorClient(os.getenv("MONGODB_URL"))
+            mongo_url = os.getenv("MONGODB_URL") or os.getenv("MONGO_URI") or "mongodb://localhost:27017"
+            self.client = AsyncIOMotorClient(mongo_url)
 
     def get_database(self):
         if self.client is None:
