@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 from app.database import db
 from motor.motor_asyncio import AsyncIOMotorClient
-from app.routers import auth, classroom
+from app.routers import auth, classroom, grading
 from app.models.classroom_manager import classroom_manager
 
 load_dotenv()
@@ -17,8 +17,7 @@ async def lifespan(app: FastAPI):
     MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
     db.client = AsyncIOMotorClient(MONGO_URI)
     
-    # Initialize classroom notice boards and attach student observers
-    await classroom_manager.initialize_from_db()
+    # Initialize classroom notice boards and attach student observer    await classroom_manager.initialize_from_db()
     
     yield
     # Shutdown: Close connection
@@ -29,6 +28,7 @@ app = FastAPI(lifespan=lifespan)
 # Include router first so that dynamic auth paths take priority over static catchalls
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(classroom.router, prefix="/classrooms", tags=["classroom"])
+app.include_router(grading.router, prefix="/grading", tags=["grading"])
 
 # Mount static directory
 app.mount("/static", StaticFiles(directory="static"), name="static")

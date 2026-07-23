@@ -32,6 +32,9 @@ pip install fastapi uvicorn motor pydantic dnspython python-dotenv pyjwt bcrypt 
 Launch the FastAPI development server:
 python -m uvicorn app.main:app --reload
 
+Optional composite-pattern demo:
+python -c "from app.models.file_system_component_examples import build_sample_tree; tree = build_sample_tree(); print(tree.display())"
+
 5. Open Web Portal
 ------------------
 Open your web browser and navigate to:

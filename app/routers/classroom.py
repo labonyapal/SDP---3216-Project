@@ -11,6 +11,7 @@ from app.security import get_current_user, RoleChecker
 from app.models.classroom_factory import ClassroomFactory
 from app.models.classroom_manager import classroom_manager
 from app.models.observer import notification_logs
+from app.models.file_system_component import Folder, StudyFile, build_tree
 
 router = APIRouter()
 
@@ -28,6 +29,15 @@ class JoinRequest(BaseModel):
 class NoticePublish(BaseModel):
     content: str
 
+
+class FolderCreate(BaseModel):
+    name: str
+    parent_id: Optional[str] = None
+
+
+class FolderUpload(BaseModel):
+    parent_id: Optional[str] = None
+
 def serialize_doc(doc):
     if not doc:
         return doc
@@ -37,6 +47,13 @@ def serialize_doc(doc):
 
 def serialize_list(docs):
     return [serialize_doc(doc) for doc in docs]
+
+
+def build_materials_tree(classroom_doc=None) -> Folder:
+    if classroom_doc and classroom_doc.get("materials_tree"):
+        return Folder.from_dict(classroom_doc["materials_tree"])
+    return Folder("Materials")
+
 
 async def generate_unique_code(db) -> str:
     """Generates a unique 6-character classroom code."""
@@ -79,6 +96,7 @@ async def create_classroom(classroom: ClassroomCreate, db = Depends(get_db), cur
         )
         
         classroom_dict = classroom_entity.to_dict()
+        classroom_dict["materials_tree"] = build_materials_tree().to_dict()
         result = await db.classrooms.insert_one(classroom_dict)
         classroom_dict["id"] = str(result.inserted_id)
         del classroom_dict["_id"]
@@ -165,11 +183,88 @@ async def publish_notice(classroom_id: str, req: NoticePublish, db = Depends(get
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database/Notification error: {str(e)}")
 
+
+@router.get("/{classroom_id}/materials")
+async def get_materials(
+    classroom_id: str,
+    db = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Fetch and recursively build the classroom materials tree."""
+    try:
+        classroom = await db.classrooms.find_one({"_id": ObjectId(classroom_id)})
+        if not classroom:
+            raise HTTPException(status_code=404, detail="Classroom not found")
+
+        # Verify access authorization
+        user_role = current_user.get("role")
+        user_id = current_user.get("id")
+        if user_role == "Teacher" and classroom.get("teacher_id") != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if user_role == "Student" and user_id not in classroom.get("students", []):
+            raise HTTPException(status_code=403, detail="You are not enrolled in this classroom")
+
+        # Get flat materials array from the classroom document
+        rows = classroom.get("materials", [])
+        
+        # Build composite tree recursively from rows
+        root = build_tree(rows)
+        return root.render()
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch materials: {str(e)}")
+
+
+@router.post("/{classroom_id}/folders")
+async def create_folder(
+    classroom_id: str,
+    req: FolderCreate,
+    db = Depends(get_db),
+    current_user = Depends(RoleChecker(["Teacher"]))
+):
+    """Create a folder in the classroom's flat materials collection."""
+    try:
+        classroom = await db.classrooms.find_one({"_id": ObjectId(classroom_id)})
+        if not classroom:
+            raise HTTPException(status_code=404, detail="Classroom not found")
+        if classroom.get("teacher_id") != current_user.get("id"):
+            raise HTTPException(status_code=403, detail="You are not authorized to create folders in this classroom")
+
+        parent_id = req.parent_id if req.parent_id else None
+        if parent_id:
+            # Verify the parent folder exists and is actually a folder
+            parent_folder = next((m for m in classroom.get("materials", []) if m.get("id") == parent_id and m.get("type") == "folder"), None)
+            if not parent_folder:
+                raise HTTPException(status_code=404, detail="Parent folder not found")
+
+        folder_id = str(uuid.uuid4())
+        new_folder = {
+            "id": folder_id,
+            "type": "folder",
+            "name": req.name,
+            "parent_id": parent_id,
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        await db.classrooms.update_one(
+            {"_id": ObjectId(classroom_id)},
+            {"$push": {"materials": new_folder}}
+        )
+
+        return {"message": "Folder created successfully", "folder": new_folder}
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Folder creation error: {str(e)}")
+
+
 @router.post("/{classroom_id}/materials")
 async def upload_material(
     classroom_id: str,
     title: str = Form(...),
     file: UploadFile = File(...),
+    parent_id: str = Form(default=""),
     db = Depends(get_db),
     current_user = Depends(RoleChecker(["Teacher"]))
 ):
@@ -185,27 +280,38 @@ async def upload_material(
         # Create safe unique filename
         safe_filename = f"{int(time.time())}_{file.filename.replace(' ', '_')}"
         file_path = os.path.join(UPLOAD_DIR, safe_filename)
+        file_bytes = await file.read()
         
         # Write file to disk
         with open(file_path, "wb") as f:
-            f.write(await file.read())
-            
-        material = {
+            f.write(file_bytes)
+
+        p_id = parent_id if parent_id else None
+        if p_id:
+            # Verify target parent folder exists and is a folder
+            parent_folder = next((m for m in classroom.get("materials", []) if m.get("id") == p_id and m.get("type") == "folder"), None)
+            if not parent_folder:
+                raise HTTPException(status_code=404, detail="Target folder not found")
+
+        new_file = {
             "id": str(uuid.uuid4()),
-            "title": title,
+            "type": "file",
+            "name": title or file.filename,
             "filename": file.filename,
+            "size": len(file_bytes),
             "file_url": f"/static/uploads/{safe_filename}",
+            "parent_id": p_id,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
         await db.classrooms.update_one(
             {"_id": ObjectId(classroom_id)},
-            {"$push": {"materials": material}}
+            {"$push": {"materials": new_file}}
         )
         
         return {
             "message": "Study material uploaded successfully",
-            "material": material
+            "material": new_file
         }
     except HTTPException as e:
         raise e
